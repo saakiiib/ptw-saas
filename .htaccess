@@ -5,10 +5,7 @@
 
 RewriteEngine On
 # new 
-# ensure www.
-RewriteCond %{HTTP_HOST} !^www\. [NC]
-RewriteCond %{HTTP_HOST} !^takeaway\. [NC]
-RewriteRule ^ https://www.%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# www redirect disabled
   
 # ensure https
 RewriteCond %{HTTP:X-Forwarded-Proto} !https
