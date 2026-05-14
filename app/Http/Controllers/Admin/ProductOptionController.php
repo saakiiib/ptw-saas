@@ -1,0 +1,220 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Product;
+use App\Models\ProductOption;
+use App\Models\ProductOptionItem;
+use App\Models\Category;
+use Illuminate\Http\Request;
+use DataTables;
+
+class ProductOptionController extends Controller
+{
+    public function index($id)
+    {
+        $product = Product::findOrFail($id);
+        
+        if (request()->ajax()) {
+            $options = ProductOption::where('product_id', $id)
+                ->with('category')
+                ->orderBy('sort_order', 'asc')
+                ->get();
+
+            return DataTables::of($options)
+                ->addIndexColumn()
+                ->addColumn('category_name', function($row) {
+                    return $row->category->name ?? '-';
+                })
+                ->addColumn('type_badge', function($row) {
+                    $badge = $row->type === 'single' ? 'info' : 'warning';
+                    return '<span class="badge bg-'.$badge.'">'.ucfirst($row->type).'</span>';
+                })
+                ->addColumn('items_count', function($row) {
+                    return '<span class="badge bg-secondary">'.$row->items()->count().'</span>';
+                })
+                ->addColumn('required_badge', function($row) {
+                    return $row->is_required ? '<span class="badge bg-danger">Required</span>' : '<span class="badge bg-info">Optional</span>';
+                })
+                ->addColumn('action', function($row) {
+                    return '
+                        <div class="dropdown">
+                            <button class="btn btn-soft-secondary btn-sm dropdown" type="button"
+                                data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="ri-more-fill align-middle"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <button class="dropdown-item copyBtn" data-id="'.$row->id.'">
+                                        <i class="ri-file-copy-fill align-bottom me-2 text-muted"></i> Copy
+                                    </button>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <button class="dropdown-item editBtn" data-id="'.$row->id.'">
+                                        <i class="ri-pencil-fill align-bottom me-2 text-muted"></i> Edit
+                                    </button>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <button class="dropdown-item deleteBtn" 
+                                        data-delete-url="'.route('product-option.destroy',$row->id).'" 
+                                        data-method="DELETE" 
+                                        data-table="#optionsTable">
+                                        <i class="ri-delete-bin-fill align-bottom me-2 text-muted"></i> Delete
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                    ';
+                })
+                ->rawColumns(['type_badge', 'items_count', 'required_badge', 'action'])
+                ->make(true);
+        }
+
+        $categories = Category::where('show_in_menu', 1)->get();
+        $options = ProductOption::where('product_id', $id)
+                ->with('category')
+                ->orderBy('sort_order', 'asc')
+                ->get();
+        return view('admin.product.option', compact('product', 'categories', 'options'));
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'product_id' => 'required|exists:products,id',
+            'category_id' => 'required|exists:categories,id',
+            'name' => 'required|string|max:255',
+            'type' => 'required|in:single,multiple',
+            'max_select' => 'required|integer|min:0',
+            'is_required' => 'nullable|boolean',
+            'products' => 'required|array|min:1'
+        ]);
+
+        $option = ProductOption::create([
+            'product_id' => $request->product_id,
+            'category_id' => $request->category_id,
+            'name' => $request->name,
+            'type' => $request->type,
+            'max_select' => $request->type === 'multiple' ? $request->max_select : 1,
+            'is_required' => $request->is_required ? 1 : 0
+        ]);
+
+        foreach ($request->products as $productId => $price) {
+            ProductOptionItem::create([
+                'product_option_id' => $option->id,
+                'product_id' => $productId,
+                'override_price' => $price,
+                'hubrise_option_ref' => $request->input("hubrise_option_refs.{$productId}")
+            ]);
+        }
+
+        return response()->json(['message' => 'Option created successfully!'], 200);
+    }
+
+    public function edit($id)
+    {
+        $option = ProductOption::with('items.product')->findOrFail($id);
+        return response()->json($option);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $request->validate([
+            'category_id' => 'required|exists:categories,id',
+            'name' => 'required|string|max:255',
+            'type' => 'required|in:single,multiple',
+            'max_select' => 'required|integer|min:0',
+            'is_required' => 'nullable|boolean',
+            'products' => 'required|array|min:1'
+        ]);
+
+        $option = ProductOption::findOrFail($id);
+
+        $option->update([
+            'category_id' => $request->category_id,
+            'name' => $request->name,
+            'type' => $request->type,
+            'max_select' => $request->type === 'multiple' ? $request->max_select : 1,
+            'is_required' => $request->is_required ? 1 : 0
+        ]);
+
+        $option->items()->delete();
+
+        foreach ($request->products as $productId => $price) {
+            ProductOptionItem::create([
+                'product_option_id' => $option->id,
+                'product_id' => $productId,
+                'override_price' => $price,
+                'hubrise_option_ref' => $request->input("hubrise_option_refs.{$productId}")
+            ]);
+        }
+
+        return response()->json(['message' => 'Option updated successfully!'], 200);
+    }
+
+    public function destroy($id)
+    {
+        ProductOption::findOrFail($id)->delete();
+        return response()->json(['message' => 'Option deleted successfully!'], 200);
+    }
+
+    public function copy($id)
+    {
+        $option = ProductOption::with('items')->findOrFail($id);
+        
+        $newOption = $option->replicate();
+        $newOption->save();
+        
+        foreach ($option->items as $item) {
+            $item->replicate()->fill(['product_option_id' => $newOption->id])->save();
+        }
+        
+        return response()->json(['message' => 'Option copied successfully!'], 200);
+    }
+
+    public function updateSort(Request $request)
+    {
+        $order = $request->order;
+        $productId = $request->product_id;
+        
+        foreach ($order as $index => $id) {
+            ProductOption::where('id', $id)
+                ->where('product_id', $productId)
+                ->update(['sort_order' => $index]);
+        }
+        return response()->json(['message' => 'Sort order updated!'], 200);
+    }
+
+    public function getCategoryProducts($productId, $categoryId, $optionId = null)
+    {
+        $selectedProductIds = [];
+        $selectedProductsPrices = [];
+        $selectedProductsRefs = [];
+        
+        if ($optionId) {
+            $items = ProductOptionItem::where('product_option_id', $optionId)->get();
+            foreach ($items as $item) {
+                $selectedProductIds[] = $item->product_id;
+                $selectedProductsPrices[$item->product_id] = $item->override_price;
+                $selectedProductsRefs[$item->product_id] = $item->hubrise_option_ref;
+            }
+        }
+
+        $products = Product::where('category_id', $categoryId)
+            ->where('id', '!=', $productId)
+            ->select('id', 'title', 'price', 'sku_ref')
+            ->where('show_in_menu', 1)
+            ->get()
+            ->map(function($product) use ($selectedProductIds, $selectedProductsPrices, $selectedProductsRefs) {
+                $product->is_selected = in_array($product->id, $selectedProductIds);
+                $product->override_price = $selectedProductsPrices[$product->id] ?? $product->price;
+                $product->hubrise_option_ref = $selectedProductsRefs[$product->id] ?? ($product->sku_ref ?? '');
+                return $product;
+            });
+
+        return response()->json($products);
+    }
+}
