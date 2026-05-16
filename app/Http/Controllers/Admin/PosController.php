@@ -388,6 +388,6 @@ class PosController extends Controller
     public function posReceipt(Order $order)
     {
         $order->load(['items.options']);
-        return view('admin.pos.receipt', compact('order'));
+        return view('admin.orders.print', compact('order'));
     }
 }

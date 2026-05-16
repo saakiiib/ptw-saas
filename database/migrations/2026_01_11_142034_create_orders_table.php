@@ -48,7 +48,7 @@ return new class extends Migration
             $table->string('payment_transaction_id')->nullable()->unique();
             
             // Status & HubRise
-            $table->enum('status', ['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'])->default('pending');
+            $table->string('status')->nullable(); //new, accepted, preparing, ready, delivered, rejected, delivery_failed
             $table->text('notes')->nullable();
             $table->string('hubrise_order_id')->nullable()->unique();
             $table->timestamps();

@@ -87,13 +87,13 @@ class OrderController extends Controller
                 })
                 ->addColumn('order_status', function ($row) {
                     $statusColors = [
-                        'pending' => 'warning',
-                        'confirmed' => 'info',
-                        'preparing' => 'primary',
-                        'ready' => 'info',
-                        'out_for_delivery' => 'secondary',
-                        'delivered' => 'success',
-                        'cancelled' => 'danger'
+                        'new'              => 'warning',
+                        'accepted'         => 'primary',
+                        'preparing'        => 'info',
+                        'ready'            => 'secondary',
+                        'delivered'        => 'success',
+                        'rejected'         => 'danger',
+                        'delivery_failed'  => 'dark',
                     ];
                     $color = $statusColors[$row->status] ?? 'secondary';
                     return '<span class="badge bg-' . $color . '">' . ucfirst(str_replace('_', ' ', $row->status)) . '</span>';

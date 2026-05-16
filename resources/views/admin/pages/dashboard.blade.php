@@ -142,17 +142,17 @@
                                         <td>
                                             @php
                                                 $statusColors = [
-                                                    'pending' => 'warning',
-                                                    'confirmed' => 'primary',
-                                                    'preparing' => 'info',
-                                                    'ready' => 'secondary',
-                                                    'out_for_delivery' => 'secondary',
-                                                    'delivered' => 'success',
-                                                    'cancelled' => 'danger'
+                                                    'new'             => 'warning',
+                                                    'accepted'        => 'primary',
+                                                    'preparing'       => 'info',
+                                                    'ready'           => 'secondary',
+                                                    'delivered'       => 'success',
+                                                    'rejected'        => 'danger',
+                                                    'delivery_failed' => 'dark',
                                                 ];
                                                 $color = $statusColors[$order->status] ?? 'secondary';
                                             @endphp
-                                            <span class="badge bg-{{ $color }} badge-sm">{{ ucfirst(str_replace('_', ' ', $order->status)) }}</span>
+                                            <span class="badge bg-{{ $color }}">{{ ucfirst(str_replace('_', ' ', $order->status)) }}</span>
                                         </td>
                                     </tr>
                                 @empty

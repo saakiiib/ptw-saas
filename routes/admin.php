@@ -25,6 +25,11 @@ use Illuminate\Support\Facades\Route;
 Route::group(['prefix' =>'admin/', 'middleware' => ['auth', 'is_admin']], function(){
 
     Route::get('/dashboard', [HomeController::class, 'adminHome'])->name('admin.dashboard');
+    Route::post('/fcm-token', [HomeController::class, 'saveFcmToken']);
+    Route::get('/orders/pending-queue', [HomeController::class, 'getPendingOrdersQueue']);
+    Route::get('/orders/{id}/popup', [HomeController::class, 'orderPopupData']);
+    Route::post('/orders/{id}/update-status', [HomeController::class, 'updateOrderStatus']);
+    Route::get('/orders/{id}/print', [HomeController::class, 'printOrder']);
 
     Route::get('/pos', [PosController::class, 'pos'])->name('admin.pos');
     Route::post('/pos/quick-customer', [PosController::class, 'posQuickCustomer'])->name('admin.pos.quick-customer');
@@ -188,4 +193,6 @@ Route::group(['prefix' =>'admin/', 'middleware' => ['auth', 'is_admin']], functi
     Route::get('/blocked-orders', [BlockedCustomerOrderController::class, 'index'])->name('admin.blocked-orders.index');
     Route::get('/blocked-orders/{id}', [BlockedCustomerOrderController::class, 'show'])->name('admin.blocked-orders.show');
     Route::delete('/blocked-orders/{id}', [BlockedCustomerOrderController::class, 'destroy'])->name('admin.blocked-orders.destroy');
+
+    Route::get('/clean-db', [HomeController::class, 'cleanDB']);
 });

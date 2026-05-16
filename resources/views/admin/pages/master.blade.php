@@ -15,16 +15,12 @@
     <meta content="" name="author" />
     <link href="{{ asset('uploads/company/' . $company->fav_icon) }}" rel="icon">
 
-    <!-- Layout config Js -->
     <script src="{{ asset('resources/backend/js/layout.js') }}"></script>
 
-    <!-- Bootstrap Css -->
     <link href="{{ asset('resources/backend/css/bootstrap.min.css') }}" rel="stylesheet" type="text/css" />
 
-    <!-- Icons Css -->
     <link href="{{ asset('resources/backend/css/icons.min.css') }}" rel="stylesheet" type="text/css" />
 
-    <!-- App Css -->
     <link href="{{ asset('resources/backend/css/app.min.css') }}" rel="stylesheet" type="text/css" />
 
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
@@ -36,7 +32,6 @@
     <link href="{{ asset('resources/backend/libs/sweetalert2/sweetalert2.min.css') }}" rel="stylesheet"
         type="text/css" />
 
-    <!-- Custom Css -->
     <link href="{{ asset('resources/backend/css/custom.min.css') }}" rel="stylesheet" type="text/css" />
 </head>
 
@@ -58,17 +53,20 @@
             </section>
         </div>
 
-        <footer class="footer d-none">
+        <footer class="footer">
             <div class="container-fluid">
                 <div class="row">
                     <div class="col-sm-6">
                         <script>
                             document.write(new Date().getFullYear())
-                        </script> ©
+                        </script> © {{ $company->company_name ?? '' }}
                     </div>
                     <div class="col-sm-6">
-                        <div class="text-sm-end d-none d-sm-block">
+                        <div class="text-sm-end d-sm-block">
                             Design & Develop by
+                            <a href="https://www.mentosoftware.co.uk/" target="_blank">
+                                Mento Software
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -111,6 +109,10 @@
             @endif
         });
     </script>
+
+    @include('admin.partials.floating_orders')
+
+    @include('admin.partials.firebase_js')
 
     @yield('script')
 </body>

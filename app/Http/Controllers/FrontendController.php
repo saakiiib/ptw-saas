@@ -26,6 +26,7 @@ use App\Models\Section;
 use App\Models\Slider;
 use App\Models\User;
 use App\Models\UserPoint;
+use App\Services\NotificationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -1189,7 +1190,13 @@ class FrontendController extends Controller
             $payment->update(['status' => 'completed']);
             $order = $this->createOrder($calculationData);
             $payment->update(['reference_id' => $order->id]);
-            $this->sendToHubRise($order, $calculationData);
+
+            $this->allocateOrderResources($order, $calculationData);
+
+            $this->sendNewOrderNotification($order);
+
+            // $this->sendToHubRise($order, $calculationData);
+            
             session()->forget(['active_payment_id', 'checkout_data']);
 
             if ($payment->status === 'completed' && $payment->reference_id) {
@@ -1265,7 +1272,11 @@ class FrontendController extends Controller
         try {
             $order = $this->createOrder($calculationData);
 
-            $this->sendToHubRise($order, $calculationData);
+            // $this->sendToHubRise($order, $calculationData);
+
+            $this->allocateOrderResources($order, $calculationData);
+
+            $this->sendNewOrderNotification($order);
 
             return response()->json([
                 'success' => true,
@@ -1280,6 +1291,31 @@ class FrontendController extends Controller
                 'success' => false,
                 'message' => 'Error placing order: ' . $e->getMessage()
             ], 400);
+        }
+    }
+
+    private function sendNewOrderNotification($order)
+    {
+        $this->sendOrderConfirmationEmail($order);
+
+        $adminIds = User::where('user_type', 1)
+            ->whereNotNull('fcm_token')
+            ->pluck('id')
+            ->toArray();
+
+        if (!empty($adminIds)) {
+            app(NotificationService::class)->sendToUsers(
+                userIds: $adminIds,
+                title: '🔔 New Order - ' . $order->order_number,
+                body: $order->first_name . ' ' . $order->last_name . ' — £' . $order->total,
+                type: 'new_order',
+                data: [
+                    'order_id' => (string)$order->id,
+                    'order_number' => $order->order_number,
+                    'total' => (string)$order->total,
+                    'delivery_type' => $order->delivery_type,
+                ]
+            );
         }
     }
 
@@ -1313,7 +1349,7 @@ class FrontendController extends Controller
                 'total' => $calculationData['total'],
                 'payment_method' => $calculationData['paymentMethod'],
                 'payment_status' => 'pending',
-                'status' => 'pending',
+                'status' => 'new',
                 'notes' => $calculationData['notes'],
                 'hubrise_order_id' => null,
                 'payment_transaction_id' => null,
@@ -1695,7 +1731,7 @@ class FrontendController extends Controller
     private function sendOrderConfirmationEmail($order)
     {
         try {
-            Mail::to($order->email)->send(new OrderConfirmationMail($order));
+            // Mail::to($order->email)->send(new OrderConfirmationMail($order));
         } catch (\Exception $e) {
         }
     }
@@ -1768,22 +1804,22 @@ class FrontendController extends Controller
             }
 
             $statusMap = [
-                'new' => 'pending',
-                'accepted' => 'confirmed',
-                'in_preparation' => 'preparing',
-                'ready' => 'ready',
-                'in_delivery' => 'confirmed',
-                'delivered' => 'delivered',
-                'completed' => 'delivered',
-                'cancelled' => 'cancelled',
-                'rejected' => 'cancelled',
-                'delivery_failed' => 'cancelled',
+                'new'              => 'new',
+                'accepted'         => 'accepted',
+                'in_preparation'   => 'preparing',
+                'ready'            => 'ready',
+                'in_delivery'      => 'accepted',
+                'delivered'        => 'delivered',
+                'completed'        => 'delivered',
+                'cancelled'        => 'rejected',
+                'rejected'         => 'rejected',
+                'delivery_failed'  => 'delivery_failed',
             ];
 
             $newLocalStatus = $statusMap[$orderStatus] ?? $orderStatus;
             $order->update(['status' => $newLocalStatus]);
 
-            if (in_array($orderStatus, ['cancelled', 'rejected'])) {
+            if (in_array($orderStatus, ['rejected', 'delivery_failed'])) {
                 $this->reverseOrderResources($order);
             }
 
@@ -1833,7 +1869,7 @@ class FrontendController extends Controller
         if ($order->user_id) {
             if ($order->points_used > 0) {
                 UserPoint::where('order_id', $order->id)
-                    ->where('point', -$order->points_used)
+                    ->where('point', -($order->points_used * 100))
                     ->delete();
             }
 

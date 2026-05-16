@@ -5,14 +5,19 @@ namespace App\Http\Controllers;
 use App\Mail\BirthdayVoucherMail;
 use App\Mail\SubscriptionReminderMail;
 use App\Models\Coupon;
+use App\Models\CouponUsage;
 use App\Models\DeliverySubscription;
+use App\Models\GiftCard;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderStatusLog;
 use App\Models\User;
+use App\Models\UserPoint;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\DB;
 
 class HomeController extends Controller
 {
@@ -29,6 +34,169 @@ class HomeController extends Controller
         } else {
             return redirect()->route('login');
         }
+    }
+
+    public function saveFcmToken(Request $request)
+    {
+        $request->validate([
+            'token' => 'required|string'
+        ]);
+
+        auth()->user()->update([
+            'fcm_token' => $request->token
+        ]);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function orderPopupData($id)
+    {
+        $order = Order::with(['items.options'])->findOrFail($id);
+        return response()->json([
+            'id'             => $order->id,
+            'order_number'   => $order->order_number,
+            'status'         => $order->status,
+            'delivery_type'  => $order->delivery_type,
+            'time'           => $order->time,
+            'first_name'     => $order->first_name,
+            'last_name'      => $order->last_name,
+            'email'          => $order->email,
+            'phone'          => $order->phone,
+            'address_1'      => $order->address_1,
+            'address_2'      => $order->address_2,
+            'city'           => $order->city,
+            'postcode'       => $order->postcode,
+            'total'          => $order->total,
+            'payment_method' => $order->payment_method,
+            'notes'          => $order->notes,
+            'items'          => $order->items->map(function($item) {
+                return [
+                    'product_name' => $item->product_name,
+                    'quantity'     => $item->quantity,
+                    'total'        => $item->total,
+                    'options'      => $item->options->map(fn($o) => [
+                        'option_name' => $o->option_name
+                    ])
+                ];
+            })
+        ]);
+    }
+
+    public function getPendingOrdersQueue()
+    {
+        $orders = Order::with(['items.options'])
+            ->whereNotIn('status', ['delivered', 'delivery_failed', 'rejected'])
+            ->orderByRaw("FIELD(status, 'new', 'accepted', 'preparing', 'ready')")
+            ->orderBy('created_at', 'asc')
+            ->get()
+            ->map(function($order) {
+                return [
+                    'id'             => $order->id,
+                    'order_number'   => $order->order_number,
+                    'status'         => $order->status,
+                    'delivery_type'  => $order->delivery_type,
+                    'time'           => $order->time,
+                    'first_name'     => $order->first_name,
+                    'last_name'      => $order->last_name,
+                    'email'          => $order->email,
+                    'phone'          => $order->phone,
+                    'address_1'      => $order->address_1,
+                    'address_2'      => $order->address_2,
+                    'city'           => $order->city,
+                    'postcode'       => $order->postcode,
+                    'total'          => $order->total,
+                    'payment_method' => $order->payment_method,
+                    'notes'          => $order->notes,
+                    'items'          => $order->items->map(fn($item) => [
+                        'product_name' => $item->product_name,
+                        'quantity'     => $item->quantity,
+                        'total'        => $item->total,
+                        'options'      => $item->options->map(fn($o) => ['option_name' => $o->option_name])
+                    ])
+                ];
+            });
+
+        return response()->json(['orders' => $orders]);
+    }
+
+    public function updateOrderStatus(Request $request, $id)
+    {
+        $request->validate([
+            'status' => 'required|in:accepted,preparing,ready,delivered,rejected,delivery_failed'
+        ]);
+
+        $order = Order::findOrFail($id);
+        $oldStatus = $order->status;
+
+        $order->update(['status' => $request->status]);
+
+        OrderStatusLog::create([
+            'order_id'   => $order->id,
+            'old_status' => $oldStatus,
+            'new_status' => $request->status,
+            'changed_by' => auth()->id(),
+            'metadata'   => json_encode(['source' => 'admin_popup'])
+        ]);
+
+        if (in_array($request->status, ['rejected', 'delivery_failed'])) {
+            $this->reverseOrderResources($order);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    private function reverseOrderResources($order)
+    {
+        if ($order->gift_card_id) {
+            $giftCard = GiftCard::find($order->gift_card_id);
+            if ($giftCard) {
+                $giftCard->update([
+                    'balance' => $giftCard->balance + $order->gift_card_discount,
+                    'status' => 'new',
+                    'redeemed_by' => null,
+                    'redeemed_at' => null,
+                    'order_id' => null
+                ]);
+            }
+        }
+
+        if ($order->coupon_id && $order->user_id) {
+            $coupon = Coupon::find($order->coupon_id);
+            if ($coupon) {
+                $coupon->update([
+                    'used_count' => max(0, $coupon->used_count - 1)
+                ]);
+
+                if ($coupon->is_birthday_voucher) {
+                    $coupon->users()->updateExistingPivot($order->user_id, [
+                        'used_count' => 0
+                    ]);
+                } else {
+                    CouponUsage::where([
+                        'coupon_id' => $coupon->id,
+                        'user_id' => $order->user_id
+                    ])->decrement('usage_count');
+                }
+            }
+        }
+
+        if ($order->user_id) {
+            if ($order->points_used > 0) {
+                UserPoint::where('order_id', $order->id)
+                    ->where('point', -($order->points_used * 100))
+                    ->delete();
+            }
+
+            UserPoint::where('order_id', $order->id)
+                ->where('point', '>', 0)
+                ->delete();
+        }
+    }
+
+    public function printOrder($id)
+    {
+        $order = Order::with(['items.options'])->findOrFail($id);
+        return view('admin.orders.print', compact('order'));
     }
 
     public function adminHome(Request $request)
@@ -264,5 +432,25 @@ class HomeController extends Controller
     public function userHome()
     {
         return view('user.dashboard');
+    }
+
+    public function cleanDB()
+    {
+        $tables = [
+            'orders',
+            'order_items',
+            'order_item_options',
+            'order_status_logs'
+        ];
+
+        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+
+        foreach ($tables as $table) {
+            DB::table($table)->truncate();
+        }
+
+        DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+
+        return "Cleaned successfully.";
     }
 }

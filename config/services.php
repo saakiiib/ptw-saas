@@ -27,6 +27,11 @@ return [
         'location_id'  => env('HUBRISE_LOCATION_ID'),
     ],
 
+    'firebase' => [
+        'vapid_key' => env('FCM_VAPID_KEY'),
+        'credentials' => env('FIREBASE_CREDENTIALS', storage_path('app/firebase-credentials.json')),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
